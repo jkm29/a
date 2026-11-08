@@ -237,10 +237,9 @@
   .meal-row{display:grid; grid-template-columns:50px minmax(0,1fr); align-items:center; gap:8px; margin:6px 0;}
   .menu-heading{display:flex; align-items:center; justify-content:space-between; gap:8px;}
   .menu-heading :is(.p-title,.field-label){margin:0;}
-  .menu-clear{color:var(--muted); font-size:12px;}
-  .meal-move{display:flex; gap:2px;}
-  .meal-move button{padding:3px 5px;}
-  .meal-move button:disabled{opacity:.3; cursor:default;}
+  .menu-clear{color:var(--muted); font-family:var(--font-mono); font-size:11px;}
+  .meal-drag{border:0; background:none; color:var(--muted); cursor:grab; font-size:18px; padding:8px; -webkit-touch-callout:none;}
+  .meal-row.dragging{opacity:.55; background:var(--menu-soft);}
   .meal-row textarea{min-height:38px;}
 
   .plan-top{
@@ -552,14 +551,14 @@ function renderPanel(){
       <div class="panel" style="--accent:${color}">
         <div class="menu-heading">
           <div class="p-title">🍽️ 주간 식단표</div>
-          <button type="button" class="line-add menu-clear" aria-label="식단표 전체 비우기" onclick="clearMenu('all')">Clear</button>
+          <button type="button" class="line-add menu-clear" aria-label="식단표 전체 비우기" onclick="clearMenu('all')">-</button>
         </div>
         <div class="ingredient-grid">
           ${[['ingredients','냉장'],['freezer','냉동'],['pantry','실온']].map(([field, label]) => `
             <div class="ingredient-field">
               <div class="menu-heading">
                 <label class="field-label" for="menu-${field}">${label}</label>
-                <button type="button" class="line-add menu-clear" aria-label="${label} 비우기" onclick="clearMenu('${field}')">Clear</button>
+                <button type="button" class="line-add menu-clear" aria-label="${label} 비우기" onclick="clearMenu('${field}')">-</button>
               </div>
               <textarea id="menu-${field}" class="autosize" oninput="autoGrow(this); m_updateMenuField('${field}', this.value)">${esc(m.menu[field])}</textarea>
             </div>`).join('')}
@@ -567,21 +566,26 @@ function renderPanel(){
 
         <div class="menu-heading">
           <div class="field-label">식단 목록</div>
-          <button type="button" class="line-add menu-clear" aria-label="식단 7칸 비우기" onclick="clearMenu('days')">Clear</button>
+          <button type="button" class="line-add menu-clear" aria-label="식단 7칸 비우기" onclick="clearMenu('days')">-</button>
         </div>
+        <div class="meal-list">
         ${WD_KEYS.map((day, index) => {
           const saved = m.menu.days?.[day];
           const meal = typeof saved === 'string' ? saved : [saved?.jihyun, saved?.hyeonje].filter(Boolean).join('\n');
-          return `<div class="meal-row">
-            <div class="meal-move">
-              <button type="button" class="line-add" aria-label="식단 ${index + 1} 위로" onclick="moveMenuMeal(${index}, -1)" ${index === 0 ? 'disabled' : ''}>↑</button>
-              <button type="button" class="line-add" aria-label="식단 ${index + 1} 아래로" onclick="moveMenuMeal(${index}, 1)" ${index === WD_KEYS.length - 1 ? 'disabled' : ''}>↓</button>
-            </div>
+          return `<div class="meal-row" data-sort-id="${day}">
+            <button type="button" class="meal-drag" draggable="true" aria-label="식단 ${index + 1} 끌어서 이동">⠿</button>
             <textarea class="autosize" rows="1" aria-label="식단 ${index + 1}" oninput="autoGrow(this); updateMenuDay('${day}', this.value)">${esc(meal)}</textarea>
           </div>`;
         }).join('')}
+        </div>
       </div>
     `;
+    setupSortableList(wrap.querySelector('.meal-list'), '.meal-drag', orderedIds => {
+      const days = dashboard.menu.days || {};
+      dashboard.menu.days = Object.fromEntries(WD_KEYS.map((key, index) => [key, days[orderedIds[index]] ?? '']));
+      queueSave();
+      renderPanel();
+    });
   }
 
   if(activeTab==='plan') renderMonthlySchedule(wrap);
@@ -840,7 +844,7 @@ function renderMonthlySchedule(wrap){
         </div>
         <div class="schedule-list">
           ${items.length ? items.map(item => `
-            <div class="schedule-item" data-event-id="${escAttr(item.id)}">
+            <div class="schedule-item" data-sort-id="${escAttr(item.id)}">
               <input type="checkbox" data-select="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 선택" ${selectedScheduleIds.has(item.id) ? 'checked' : ''}>
               <button type="button" class="schedule-entry ${item.type === 'important' ? 'important' : ''}" draggable="true" data-edit="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 수정">
                 <span>${esc(item.title)}</span>
@@ -938,10 +942,8 @@ function renderMonthlySchedule(wrap){
     if(endDate.value === endDate.min || endDate.value < startDate.value) endDate.value = startDate.value;
     endDate.min = startDate.value;
   };
-  let suppressEdit = false;
   wrap.querySelectorAll('[data-edit]').forEach(button => {
     button.onclick = () => {
-      if(suppressEdit) return;
       const item = dashboard.plan.find(entry => entry.id === button.dataset.edit);
       if(item) openEditor(item);
     };
@@ -999,11 +1001,22 @@ function renderMonthlySchedule(wrap){
     renderPanel();
   };
 
-  const list = wrap.querySelector('.schedule-list');
+  setupSortableList(wrap.querySelector('.schedule-list'), '.schedule-entry', orderedIds => {
+    const byId = new Map(dashboard.plan.map(item => [item.id, item]));
+    const ordered = orderedIds.map(id => byId.get(id)).filter(Boolean);
+    let index = 0;
+    dashboard.plan = dashboard.plan.map(item => visibleIds.has(item.id) ? ordered[index++] : item);
+    queueSave();
+    renderPanel();
+  });
+}
+
+function setupSortableList(list, handleSelector, onReorder){
+  let suppressEdit = false;
   let draggedRow = null;
   let touchTimer = null;
   const placeRow = (x, y) => {
-    const target = document.elementFromPoint(x, y)?.closest('[data-event-id]');
+    const target = document.elementFromPoint(x, y)?.closest('[data-sort-id]');
     if(!draggedRow || !target || target === draggedRow || !list.contains(target)) return;
     const bounds = target.getBoundingClientRect();
     list.insertBefore(draggedRow, y < bounds.top + bounds.height / 2 ? target : target.nextSibling);
@@ -1013,23 +1026,23 @@ function renderMonthlySchedule(wrap){
     if(!draggedRow) return;
     draggedRow.classList.remove('dragging');
     draggedRow = null;
-    const orderedIds = Array.from(list.querySelectorAll('[data-event-id]'), row => row.dataset.eventId);
-    const byId = new Map(dashboard.plan.map(item => [item.id, item]));
-    const ordered = orderedIds.map(id => byId.get(id)).filter(Boolean);
-    let index = 0;
-    dashboard.plan = dashboard.plan.map(item => visibleIds.has(item.id) ? ordered[index++] : item);
-    queueSave();
-    renderPanel();
+    const orderedIds = Array.from(list.querySelectorAll('[data-sort-id]'), row => row.dataset.sortId);
+    onReorder(orderedIds);
   };
-  wrap.querySelectorAll('.schedule-entry').forEach(button => {
-    const row = button.closest('[data-event-id]');
+  list.querySelectorAll(handleSelector).forEach(button => {
+    const row = button.closest('[data-sort-id]');
+    button.addEventListener('click', event => {
+      if(!suppressEdit) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
     button.onpointerdown = () => { suppressEdit = false; };
     button.ondragstart = event => {
       suppressEdit = true;
       draggedRow = row;
       row.classList.add('dragging');
       event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', row.dataset.eventId);
+      event.dataTransfer.setData('text/plain', row.dataset.sortId);
     };
     button.ondragend = finishDrag;
     button.ontouchstart = () => {
@@ -1087,18 +1100,6 @@ function updateMenuDay(day, value){
   dashboard.menu.days ??= {};
   dashboard.menu.days[day] = value;
   queueSave();
-}
-
-function moveMenuMeal(index, offset){
-  const from = WD_KEYS[index];
-  const to = WD_KEYS[index + offset];
-  if(!from || !to) return;
-  const days = dashboard.menu.days ??= {};
-  const current = days[from] ?? '';
-  days[from] = days[to] ?? '';
-  days[to] = current;
-  queueSave();
-  renderPanel();
 }
 
 function clearMenu(scope){
