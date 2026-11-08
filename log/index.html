@@ -403,8 +403,9 @@
   .schedule-form input:not([type=radio]){font:inherit; font-size:16px; min-width:0; max-width:100%; padding:7px; border:1px solid var(--line,#dce4ed); border-radius:8px; background:var(--card,#fff); color:var(--ink);}
   .schedule-item{display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line); font-size:13px;}
   .schedule-item input{width:15px; height:15px; flex:none; accent-color:var(--plan);}
-  .schedule-entry{flex:1; min-width:0; border:0; background:none; color:var(--ink); text-align:left; font:inherit; padding:13px 0; cursor:grab; overflow-wrap:anywhere;}
+  .schedule-entry{display:flex; align-items:center; justify-content:space-between; gap:12px; flex:1; min-width:0; border:0; background:none; color:var(--ink); text-align:left; font:inherit; padding:13px 0; cursor:grab; overflow-wrap:anywhere;}
   .schedule-item.dragging{opacity:.55; background:var(--plan-soft);}
+  .schedule-assignee{flex:none; font-size:12px;}
   .schedule-entry.important{color:#c62828; font-weight:700;}
   .schedule-preview.jihyun-important,.schedule-preview.hyeonje-important,.schedule-preview.unassigned-important{color:#c62828; font-weight:700;}
   .schedule-entry:focus-visible{outline:2px solid var(--plan);}
@@ -738,7 +739,6 @@ function moveScheduleMonth(offset){
 const schedulePeople = { jihyun: '지현', hyeonje: '현제' };
 const scheduleTypes = { event: '기본', important: '중요' };
 const selectedScheduleIds = new Set();
-const scheduleIcons = { jihyun: '🐰', hyeonje: '🦁' };
 
 
 function parseScheduleDictation(input, today = new Date()){
@@ -843,7 +843,8 @@ function renderMonthlySchedule(wrap){
             <div class="schedule-item" data-event-id="${escAttr(item.id)}">
               <input type="checkbox" data-select="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 선택" ${selectedScheduleIds.has(item.id) ? 'checked' : ''}>
               <button type="button" class="schedule-entry ${item.type === 'important' ? 'important' : ''}" draggable="true" data-edit="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 수정">
-                ${Object.hasOwn(scheduleIcons, item.person) ? `<span role="img" aria-label="${schedulePeople[item.person]}">${scheduleIcons[item.person]}</span> ` : ''}${esc(item.title)}
+                <span>${esc(item.title)}</span>
+                ${Object.hasOwn(schedulePeople, item.person) ? `<span class="schedule-assignee">${schedulePeople[item.person]}</span>` : ''}
               </button>
             </div>`).join('') : '<p class="p-sub">이날에 등록된 일정이 없어요.</p>'}
         </div>
