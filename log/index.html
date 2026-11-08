@@ -376,9 +376,12 @@
   .schedule-more{color:var(--muted); font-size:10px;}
   .schedule-detail h2{margin:0 0 8px; font-size:13px;}
   .schedule-detail-head{display:flex; align-items:baseline; justify-content:space-between; gap:8px;}
-  .schedule-dialog{width:min(420px,calc(100% - 24px)); max-height:85dvh; color:var(--ink);}
+  .schedule-dialog{width:min(420px,calc(100% - 16px)); max-height:calc(100dvh - 24px); overflow-y:auto; overscroll-behavior:contain; color:var(--ink); padding:18px 14px 0; animation:none;}
   .schedule-dialog::backdrop{background:#15243c66;}
-  .schedule-dialog-actions{display:flex; justify-content:flex-end; gap:12px; width:100%;}
+  .schedule-dialog-actions{position:sticky; bottom:0; z-index:1; display:flex; justify-content:flex-end; gap:12px; width:100%; background:var(--card); padding:12px 0 max(12px,env(safe-area-inset-bottom)); border-top:1px solid var(--line);}
+  .schedule-dialog-actions button{min-height:44px; padding:8px 16px;}
+  .schedule-dialog-actions button[type=submit]{background:var(--plan); color:var(--ink); border-radius:8px;}
+  .schedule-dialog .schedule-form{margin-bottom:0;}
   .schedule-options{display:flex; flex-wrap:wrap; gap:8px 12px; margin:0; padding:4px 0 0; border:0; min-width:0;}
   .schedule-dictation{font-size:12px;}
   .schedule-dictation label{display:grid; gap:4px; margin:6px 0;}
@@ -399,7 +402,9 @@
   .schedule-form > label{display:grid; gap:4px; min-width:0;}
   .schedule-dictation,.schedule-title,.schedule-dialog-actions{grid-column:1 / -1;}
   .schedule-form input:not([type=radio]){font:inherit; font-size:16px; min-width:0; max-width:100%; padding:7px; border:1px solid var(--line,#dce4ed); border-radius:8px; background:var(--card,#fff); color:var(--ink);}
-  .schedule-item{display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; padding:10px 0;}
+  .schedule-item{display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; padding:10px 0; font-size:13px;}
+  .schedule-item-actions{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px; max-width:130px;}
+  .schedule-item-actions button:disabled{opacity:.3;}
   .schedule-item span{overflow-wrap:anywhere;}
 </style>
 </head>
@@ -726,7 +731,8 @@ function moveScheduleMonth(offset){
 }
 
 const schedulePeople = { jihyun: '지현', hyeonje: '현제' };
-const scheduleTypes = { event: '이벤트', important: '중요' };
+const scheduleTypes = { event: '기본', important: '중요' };
+const scheduleIcons = { '': '👩🏻‍❤️‍💋‍👨🏻', jihyun: '🐰', hyeonje: '🦁' };
 
 
 function parseScheduleDictation(input, today = new Date()){
@@ -764,7 +770,7 @@ function parseScheduleDictation(input, today = new Date()){
   if(/^(?:부터|까지|[~～–-])/.test(rest)) return null;
   const personMatch = rest.match(/^(함께|지현|현제)(?=[\s,，.。]|$)/);
   if(personMatch) rest = rest.slice(personMatch[0].length).replace(/^[\s,，.。]+/, '');
-  const typeMatch = rest.match(/^(중요|이벤트)(?=[\s,，.。]|$)/);
+  const typeMatch = rest.match(/^(중요|기본|이벤트)(?=[\s,，.。]|$)/);
   if(typeMatch) rest = rest.slice(typeMatch[0].length).replace(/^[\s,，.。]+/, '');
   const title = rest.replace(/[.。]\s*$/, '').trim();
   if(!title || title.length > 160) return null;
@@ -773,7 +779,7 @@ function parseScheduleDictation(input, today = new Date()){
     start: dateToStr(start),
     end: dateToStr(end),
     person: personMatch ? ({ 함께: '', 지현: 'jihyun', 현제: 'hyeonje' })[personMatch[1]] : null,
-    type: typeMatch ? ({ 중요: 'important', 이벤트: 'event' })[typeMatch[1]] : null,
+    type: typeMatch ? ({ 중요: 'important', 기본: 'event', 이벤트: 'event' })[typeMatch[1]] : null,
     title
   };
 }
@@ -824,10 +830,12 @@ function renderMonthlySchedule(wrap){
           <button type="button" id="scheduleAdd" class="line-add">+ 일정 추가</button>
         </div>
         <div class="schedule-list">
-          ${items.length ? items.map(item => `
+          ${items.length ? items.map((item, index) => `
             <div class="schedule-item">
-              <span>${esc(item.title)}${item.type === 'important' ? ' <span class="schedule-star" role="img" aria-label="중요">★</span>' : ''}</span>
-              <div>
+              <span><span role="img" aria-label="${schedulePeople[item.person] || '함께'}">${scheduleIcons[item.person] || scheduleIcons['']}</span> ${esc(item.title)}${item.type === 'important' ? ' <span class="schedule-star" role="img" aria-label="중요">★</span>' : ''}</span>
+              <div class="schedule-item-actions">
+                <button type="button" class="line-add" data-move="${escAttr(item.id)}" data-offset="-1" aria-label="일정 위로" ${index === 0 ? 'disabled' : ''}>↑</button>
+                <button type="button" class="line-add" data-move="${escAttr(item.id)}" data-offset="1" aria-label="일정 아래로" ${index === items.length - 1 ? 'disabled' : ''}>↓</button>
                 <button type="button" class="line-add" data-edit="${escAttr(item.id)}">수정</button>
                 <button type="button" class="line-add" data-remove="${escAttr(item.id)}" aria-label="일정 삭제">삭제</button>
               </div>
@@ -856,9 +864,10 @@ function renderMonthlySchedule(wrap){
         </fieldset>
         <fieldset class="schedule-options">
           <legend>구분</legend>
-          ${Object.entries(scheduleTypes).map(([key, label]) => `<label><input type="radio" name="type" value="${key}" required> ${label}</label>`).join('')}
+          ${Object.entries(scheduleTypes).map(([key, label]) => `<label><input type="radio" name="type" value="${key}" ${key === 'event' ? 'checked' : ''} required> ${label}</label>`).join('')}
         </fieldset>
         <label class="schedule-title">일정 <input name="title" type="text" maxlength="160" required></label>
+        <label class="schedule-title">메모 <textarea name="memo" rows="3"></textarea></label>
         <div class="schedule-dialog-actions">
           <button class="line-add" type="button" id="scheduleCancel">취소</button>
           <button class="line-add" type="submit">추가</button>
@@ -910,6 +919,7 @@ function renderMonthlySchedule(wrap){
     if(item?.person) form.elements.person.value = item.person;
     if(item?.type) form.elements.type.value = item.type;
     form.elements.title.value = item?.title || '';
+    form.elements.memo.value = item?.memo || '';
     dialog.querySelector('h2').textContent = item ? '일정 수정' : '일정 추가';
     form.querySelector('[type=submit]').textContent = item ? '변경 저장' : '추가';
     dialog.showModal();
@@ -936,7 +946,8 @@ function renderMonthlySchedule(wrap){
     const lastDate = endDate.value;
     if(!title || !date || !lastDate || lastDate < date ||
        (person !== '' && !Object.hasOwn(schedulePeople, person)) || !Object.hasOwn(scheduleTypes, type)) return;
-    const details = { date, endDate: lastDate, title, person, type };
+    const memo = data.get('memo');
+    const details = { date, endDate: lastDate, title, person, type, memo };
     if(editingId !== null){
       const current = dashboard.plan.find(item => item.id === editingId);
       if(!current){
@@ -957,6 +968,19 @@ function renderMonthlySchedule(wrap){
     renderPanel();
     document.getElementById('scheduleDayTitle').focus();
   };
+  wrap.querySelectorAll('[data-move]').forEach(button => {
+    button.onclick = () => {
+      const index = items.findIndex(item => item.id === button.dataset.move);
+      const neighbor = items[index + Number(button.dataset.offset)];
+      if(!neighbor) return;
+      const from = dashboard.plan.findIndex(item => item.id === items[index].id);
+      const to = dashboard.plan.findIndex(item => item.id === neighbor.id);
+      if(from < 0 || to < 0) return;
+      [dashboard.plan[from], dashboard.plan[to]] = [dashboard.plan[to], dashboard.plan[from]];
+      queueSave();
+      renderPanel();
+    };
+  });
   wrap.querySelectorAll('[data-remove]').forEach(button => {
     button.onclick = () => {
       dashboard.plan = dashboard.plan.filter(item => item.id !== button.dataset.remove);
