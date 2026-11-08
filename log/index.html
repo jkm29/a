@@ -389,7 +389,7 @@
   .schedule-options legend{padding:0; font-size:12px;}
   .schedule-options label{display:flex; align-items:center; gap:4px; cursor:pointer;}
   .schedule-options input{margin:0; accent-color:var(--plan);}
-  .schedule-star{color:#946200;}
+  .schedule-star{color:inherit;}
   @media(max-width:480px){
     .schedule-panel{margin-inline:-17px; padding-inline:3px;}
     .schedule-panel > :is(.p-title,.cal-head,.schedule-detail){margin-inline:10px;}
@@ -406,6 +406,8 @@
   .schedule-item input{width:18px; height:18px; flex:none; accent-color:var(--plan);}
   .schedule-entry{flex:1; min-width:0; border:0; background:none; color:var(--ink); text-align:left; font:inherit; padding:13px 0; cursor:grab; overflow-wrap:anywhere;}
   .schedule-item.dragging{opacity:.55; background:var(--plan-soft);}
+  .schedule-entry.important{color:#c62828; font-weight:700;}
+  .schedule-preview.jihyun-important,.schedule-preview.hyeonje-important,.schedule-preview.unassigned-important{color:#c62828; font-weight:700;}
   .schedule-entry:focus-visible{outline:2px solid var(--plan);}
   .schedule-list-actions{display:flex; gap:12px;}
   .schedule-list-actions button:disabled{opacity:.35;}
@@ -737,7 +739,7 @@ function moveScheduleMonth(offset){
 const schedulePeople = { jihyun: '지현', hyeonje: '현제' };
 const scheduleTypes = { event: '기본', important: '중요' };
 const selectedScheduleIds = new Set();
-const scheduleIcons = { '': '✔️', jihyun: '🐰', hyeonje: '🦁' };
+const scheduleIcons = { jihyun: '🐰', hyeonje: '🦁' };
 
 
 function parseScheduleDictation(input, today = new Date()){
@@ -841,8 +843,8 @@ function renderMonthlySchedule(wrap){
           ${items.length ? items.map(item => `
             <div class="schedule-item" data-event-id="${escAttr(item.id)}">
               <input type="checkbox" data-select="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 선택" ${selectedScheduleIds.has(item.id) ? 'checked' : ''}>
-              <button type="button" class="schedule-entry" draggable="true" data-edit="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 수정">
-                <span role="img" aria-label="${schedulePeople[item.person] || '함께'}">${scheduleIcons[item.person] || scheduleIcons['']}</span> ${esc(item.title)}${item.type === 'important' ? ' <span class="schedule-star" role="img" aria-label="중요">★</span>' : ''}
+              <button type="button" class="schedule-entry ${item.type === 'important' ? 'important' : ''}" draggable="true" data-edit="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 수정">
+                ${Object.hasOwn(scheduleIcons, item.person) ? `<span role="img" aria-label="${schedulePeople[item.person]}">${scheduleIcons[item.person]}</span> ` : ''}${esc(item.title)}${item.type === 'important' ? ' <span class="schedule-star" role="img" aria-label="중요">★</span>' : ''}
               </button>
             </div>`).join('') : '<p class="p-sub">이날에 등록된 일정이 없어요.</p>'}
         </div>
