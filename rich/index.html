@@ -2384,6 +2384,23 @@ function renderAssetsDonut() {
   renderDonutChart(svg, calloutsEl, catsWithAmount, totals, denom, "balance", 0);
 }
 
+async function latestPreviousAssetValue(itemId, monthKey) {
+  const prefix = `${ASSET_LEDGER_KEY}_`;
+  const snapshot = await db.collection(ASSET_COLLECTION)
+    .where(firebase.firestore.FieldPath.documentId(), ">=", prefix + "0000-00")
+    .where(firebase.firestore.FieldPath.documentId(), "<", prefix + monthKey)
+    .orderBy(firebase.firestore.FieldPath.documentId(), "desc")
+    .get();
+  for (const doc of snapshot.docs) {
+    if (!/^\d{4}-\d{2}$/.test(doc.id.slice(prefix.length))) continue;
+    const value = (doc.data().values || {})[itemId];
+    if (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value))) {
+      return Number(value);
+    }
+  }
+  return null;
+}
+
 function renderAssetsScreen() {
   renderAssetsDonut();
   const d = state.assetsDate;
@@ -2474,13 +2491,32 @@ function renderAssetsScreen() {
   });
 
   listEl.querySelectorAll(".cell-display").forEach(span => {
-    span.addEventListener("click", () => {
+    span.addEventListener("click", async () => {
       const cell = span.closest(".value-cell");
       const input = cell.querySelector(".cell-input");
       span.style.display = "none";
       input.style.display = "inline-block";
       input.focus();
       input.select();
+      const itemId = input.dataset.item;
+      const item = state.assetItems.find(it => it.id === itemId);
+      const category = item && state.assetCategories.find(cat => cat.id === item.categoryId);
+      const labels = [item && item.label, category && category.label].filter(Boolean)
+        .map(label => label.replace(/\s/g, ""));
+      const shouldPrefill = labels.some(label => label === "전세자금" || label === "전세대출");
+      if (!shouldPrefill || state.assetMonthValues[itemId] != null || input.value !== "") return;
+      const monthKey = monthKeyOf(state.assetsDate);
+      let edited = false;
+      input.addEventListener("input", () => { edited = true; }, { once: true });
+      try {
+        const value = await latestPreviousAssetValue(itemId, monthKey);
+        if (value === null || edited || !input.isConnected || document.activeElement !== input
+          || monthKeyOf(state.assetsDate) !== monthKey || state.assetMonthValues[itemId] != null) return;
+        input.value = fmtNum(value);
+        input.select();
+      } catch (err) {
+        console.error("이전 달 자산 금액 조회 실패:", err);
+      }
     });
   });
 
