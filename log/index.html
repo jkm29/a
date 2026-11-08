@@ -402,10 +402,13 @@
   .schedule-form > label{display:grid; gap:4px; min-width:0;}
   .schedule-dictation,.schedule-title,.schedule-dialog-actions{grid-column:1 / -1;}
   .schedule-form input:not([type=radio]){font:inherit; font-size:16px; min-width:0; max-width:100%; padding:7px; border:1px solid var(--line,#dce4ed); border-radius:8px; background:var(--card,#fff); color:var(--ink);}
-  .schedule-item{display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; padding:10px 0; font-size:13px;}
-  .schedule-item-actions{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px; max-width:130px;}
-  .schedule-item-actions button:disabled{opacity:.3;}
-  .schedule-item span{overflow-wrap:anywhere;}
+  .schedule-item{display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line); font-size:13px;}
+  .schedule-item input{width:18px; height:18px; flex:none; accent-color:var(--plan);}
+  .schedule-entry{flex:1; min-width:0; border:0; background:none; color:var(--ink); text-align:left; font:inherit; padding:13px 0; cursor:grab; overflow-wrap:anywhere;}
+  .schedule-item.dragging{opacity:.55; background:var(--plan-soft);}
+  .schedule-entry:focus-visible{outline:2px solid var(--plan);}
+  .schedule-list-actions{display:flex; gap:12px;}
+  .schedule-list-actions button:disabled{opacity:.35;}
 </style>
 </head>
 <body>
@@ -723,6 +726,7 @@ function renderGoalActions(g){
 
 /* ---- menu / plan ---- */
 function moveScheduleMonth(offset){
+  selectedScheduleIds.clear();
   const [year, month] = selectedMonth.split('-').map(Number);
   selectedMonth = dateToStr(new Date(year, month - 1 + offset, 1)).slice(0, 7);
   selectedDate = selectedMonth + '-01';
@@ -732,6 +736,7 @@ function moveScheduleMonth(offset){
 
 const schedulePeople = { jihyun: '지현', hyeonje: '현제' };
 const scheduleTypes = { event: '기본', important: '중요' };
+const selectedScheduleIds = new Set();
 const scheduleIcons = { '': '✔️', jihyun: '🐰', hyeonje: '🦁' };
 
 
@@ -827,18 +832,18 @@ function renderMonthlySchedule(wrap){
       <div class="schedule-detail">
         <div class="schedule-detail-head">
           <h2 id="scheduleDayTitle" tabindex="-1">${month}월 ${Number(selectedDate.slice(-2))}일 일정</h2>
-          <button type="button" id="scheduleAdd" class="line-add">+ 일정 추가</button>
+          <div class="schedule-list-actions">
+            <button type="button" id="scheduleAdd" class="line-add">추가</button>
+            <button type="button" id="scheduleDelete" class="line-add" disabled>삭제</button>
+          </div>
         </div>
         <div class="schedule-list">
-          ${items.length ? items.map((item, index) => `
-            <div class="schedule-item">
-              <span><span role="img" aria-label="${schedulePeople[item.person] || '함께'}">${scheduleIcons[item.person] || scheduleIcons['']}</span> ${esc(item.title)}${item.type === 'important' ? ' <span class="schedule-star" role="img" aria-label="중요">★</span>' : ''}</span>
-              <div class="schedule-item-actions">
-                <button type="button" class="line-add" data-move="${escAttr(item.id)}" data-offset="-1" aria-label="일정 위로" ${index === 0 ? 'disabled' : ''}>↑</button>
-                <button type="button" class="line-add" data-move="${escAttr(item.id)}" data-offset="1" aria-label="일정 아래로" ${index === items.length - 1 ? 'disabled' : ''}>↓</button>
-                <button type="button" class="line-add" data-edit="${escAttr(item.id)}">수정</button>
-                <button type="button" class="line-add" data-remove="${escAttr(item.id)}" aria-label="일정 삭제">삭제</button>
-              </div>
+          ${items.length ? items.map(item => `
+            <div class="schedule-item" data-event-id="${escAttr(item.id)}">
+              <input type="checkbox" data-select="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 선택" ${selectedScheduleIds.has(item.id) ? 'checked' : ''}>
+              <button type="button" class="schedule-entry" draggable="true" data-edit="${escAttr(item.id)}" aria-label="${escAttr(item.title)} 수정">
+                <span role="img" aria-label="${schedulePeople[item.person] || '함께'}">${scheduleIcons[item.person] || scheduleIcons['']}</span> ${esc(item.title)}${item.type === 'important' ? ' <span class="schedule-star" role="img" aria-label="중요">★</span>' : ''}
+              </button>
             </div>`).join('') : '<p class="p-sub">이날에 등록된 일정이 없어요.</p>'}
         </div>
       </div>
@@ -876,6 +881,7 @@ function renderMonthlySchedule(wrap){
     </dialog>`;
   wrap.querySelectorAll('[data-date]').forEach(button => {
     button.onclick = () => {
+      selectedScheduleIds.clear();
       selectedDate = button.dataset.date;
       renderPanel();
       document.getElementById('scheduleDayTitle').focus();
@@ -930,8 +936,10 @@ function renderMonthlySchedule(wrap){
     if(endDate.value === endDate.min || endDate.value < startDate.value) endDate.value = startDate.value;
     endDate.min = startDate.value;
   };
+  let suppressEdit = false;
   wrap.querySelectorAll('[data-edit]').forEach(button => {
     button.onclick = () => {
+      if(suppressEdit) return;
       const item = dashboard.plan.find(entry => entry.id === button.dataset.edit);
       if(item) openEditor(item);
     };
@@ -968,26 +976,104 @@ function renderMonthlySchedule(wrap){
     renderPanel();
     document.getElementById('scheduleDayTitle').focus();
   };
-  wrap.querySelectorAll('[data-move]').forEach(button => {
-    button.onclick = () => {
-      const index = items.findIndex(item => item.id === button.dataset.move);
-      const neighbor = items[index + Number(button.dataset.offset)];
-      if(!neighbor) return;
-      const from = dashboard.plan.findIndex(item => item.id === items[index].id);
-      const to = dashboard.plan.findIndex(item => item.id === neighbor.id);
-      if(from < 0 || to < 0) return;
-      [dashboard.plan[from], dashboard.plan[to]] = [dashboard.plan[to], dashboard.plan[from]];
-      queueSave();
-      renderPanel();
+  const deleteButton = wrap.querySelector('#scheduleDelete');
+  const visibleIds = new Set(items.map(item => item.id));
+  for(const id of selectedScheduleIds){
+    if(!visibleIds.has(id)) selectedScheduleIds.delete(id);
+  }
+  deleteButton.disabled = selectedScheduleIds.size === 0;
+  wrap.querySelectorAll('[data-select]').forEach(checkbox => {
+    checkbox.onchange = () => {
+      if(checkbox.checked) selectedScheduleIds.add(checkbox.dataset.select);
+      else selectedScheduleIds.delete(checkbox.dataset.select);
+      deleteButton.disabled = selectedScheduleIds.size === 0;
     };
   });
-  wrap.querySelectorAll('[data-remove]').forEach(button => {
-    button.onclick = () => {
-      dashboard.plan = dashboard.plan.filter(item => item.id !== button.dataset.remove);
-      queueSave();
-      renderPanel();
+  deleteButton.onclick = () => {
+    if(!selectedScheduleIds.size || !confirm('선택한 일정 ' + selectedScheduleIds.size + '개를 삭제할까요?')) return;
+    dashboard.plan = dashboard.plan.filter(item => !selectedScheduleIds.has(item.id));
+    selectedScheduleIds.clear();
+    queueSave();
+    renderPanel();
+  };
+
+  const list = wrap.querySelector('.schedule-list');
+  let draggedRow = null;
+  let touchTimer = null;
+  const placeRow = (x, y) => {
+    const target = document.elementFromPoint(x, y)?.closest('[data-event-id]');
+    if(!draggedRow || !target || target === draggedRow || !list.contains(target)) return;
+    const bounds = target.getBoundingClientRect();
+    list.insertBefore(draggedRow, y < bounds.top + bounds.height / 2 ? target : target.nextSibling);
+  };
+  const finishDrag = () => {
+    clearTimeout(touchTimer);
+    if(!draggedRow) return;
+    draggedRow.classList.remove('dragging');
+    draggedRow = null;
+    const orderedIds = Array.from(list.querySelectorAll('[data-event-id]'), row => row.dataset.eventId);
+    const byId = new Map(dashboard.plan.map(item => [item.id, item]));
+    const ordered = orderedIds.map(id => byId.get(id)).filter(Boolean);
+    let index = 0;
+    dashboard.plan = dashboard.plan.map(item => visibleIds.has(item.id) ? ordered[index++] : item);
+    queueSave();
+    renderPanel();
+  };
+  wrap.querySelectorAll('.schedule-entry').forEach(button => {
+    const row = button.closest('[data-event-id]');
+    button.onpointerdown = () => { suppressEdit = false; };
+    button.ondragstart = event => {
+      suppressEdit = true;
+      draggedRow = row;
+      row.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', row.dataset.eventId);
     };
+    button.ondragend = finishDrag;
+    button.ontouchstart = () => {
+      suppressEdit = false;
+      touchTimer = setTimeout(() => {
+        draggedRow = row;
+        suppressEdit = true;
+        row.classList.add('dragging');
+      }, 300);
+    };
+    button.addEventListener('touchmove', event => {
+      if(!draggedRow){
+        clearTimeout(touchTimer);
+        return;
+      }
+      event.preventDefault();
+      const touch = event.touches[0];
+      placeRow(touch.clientX, touch.clientY);
+      if(touch.clientY < 60) window.scrollBy(0, -12);
+      if(touch.clientY > window.innerHeight - 60) window.scrollBy(0, 12);
+    }, { passive: false });
+    button.addEventListener('touchend', event => {
+      if(draggedRow) event.preventDefault();
+      finishDrag();
+    }, { passive: false });
+    button.ontouchcancel = () => {
+      clearTimeout(touchTimer);
+      if(draggedRow){
+        draggedRow.classList.remove('dragging');
+        draggedRow = null;
+        renderPanel();
+      }
+    };
+    button.oncontextmenu = event => event.preventDefault();
   });
+  list.ondragover = event => {
+    if(!draggedRow) return;
+    event.preventDefault();
+    placeRow(event.clientX, event.clientY);
+  };
+  list.ondrop = event => {
+    if(!draggedRow) return;
+    event.preventDefault();
+    finishDrag();
+  };
+
 }
 
 function m_updateMenuField(field, value){
