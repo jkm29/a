@@ -31,6 +31,7 @@
     --travel:#2C66D6;  --travel-soft:#E1E9FA;
     --goal:#1E4FC7;    --goal-soft:#E0E7F9;
 
+    --input-font-size:12.5px;
     --font-head:'IBM Plex Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-body:'IBM Plex Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono:'Space Mono', monospace;
@@ -221,7 +222,7 @@
   .field-label:first-of-type{margin-top:0;}
 
   textarea, input[type=text]{
-    font-family:var(--font-body); font-size:12.5px; color:var(--ink);
+    font-family:var(--font-body); font-size:var(--input-font-size); color:var(--ink);
     border:1px solid var(--line); border-radius:10px;
     padding:10px 12px; width:100%; background:var(--bg);
   }
@@ -240,7 +241,7 @@
   .meal-drag{border:0; background:none; color:var(--muted); cursor:grab; font-size:18px; padding:0; -webkit-touch-callout:none;}
   .meal-row.dragging{opacity:.55; background:var(--menu-soft);}
   .meal-row textarea{min-height:38px;}
-  .meal-day{width:48px; min-width:0; padding:8px 2px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:inherit; font:inherit;}
+  .meal-day{width:48px; min-width:0; padding:8px 2px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:inherit; font-family:var(--font-body); font-size:var(--input-font-size);}
   .meal-ideas{margin-top:18px;}
   .meal-clear-dialog{width:calc(100% - 40px); max-width:460px; max-height:80vh; overflow:auto; border:1px solid var(--line); border-radius:18px; padding:20px; color:var(--text); background:var(--card,white);}
   .meal-clear-dialog::backdrop{background:rgba(0,0,0,.35);}
@@ -584,7 +585,7 @@ function renderPanel(){
           <div class="meal-row" data-sort-id="${escAttr(meal.id)}">
             <button type="button" class="meal-drag" draggable="true" aria-label="식단 ${index + 1} 끌어서 이동">⠿</button>
             <select class="meal-day" aria-label="식단 ${index + 1} 요일" onchange="updateMenuMealDay('${escAttr(meal.id)}', this.value)">
-              <option value="">요일</option>
+              <option value="" ${!WD_KEYS.includes(meal.day) ? 'selected' : ''}></option>
               ${WD_KEYS.map((day, i) => `<option value="${day}" ${meal.day === day ? 'selected' : ''}>${['월','화','수','목','금','토','일'][i]}</option>`).join('')}
             </select>
             <textarea class="autosize" rows="1" aria-label="식단 ${index + 1}" oninput="autoGrow(this); updateMenuMeal('${escAttr(meal.id)}', this.value)">${esc(meal.text)}</textarea>
