@@ -1142,23 +1142,23 @@ function updateMenuMealDay(id, day){
 }
 
 function openMealClearDialog(){
-  const meals = menuMeals().filter(meal => meal.text.trim());
+  const meals = menuMeals();
   const dialog = document.createElement('dialog');
   dialog.className = 'meal-clear-dialog';
   dialog.setAttribute('aria-label', '식단 선택 삭제');
   dialog.innerHTML = `<h3>식단 선택 삭제</h3>
-    <p>비울 항목을 선택해주세요.</p>
+    <p>삭제할 항목을 선택해주세요.</p>
     ${meals.length ? meals.map(meal => {
       const dayIndex = WD_KEYS.indexOf(meal.day);
       const day = dayIndex >= 0 ? ['월','화','수','목','금','토','일'][dayIndex] + ' · ' : '';
-      return `<label class="meal-clear-choice"><input type="checkbox" value="${escAttr(meal.id)}" checked><span>${day}${esc(meal.text)}</span></label>`;
-    }).join('') : '<p>입력된 식단이 없습니다.</p>'}
+      return `<label class="meal-clear-choice"><input type="checkbox" value="${escAttr(meal.id)}" checked><span>${day}${esc(meal.text) || '(빈 식단)'}</span></label>`;
+    }).join('') : '<p>식단 항목이 없습니다.</p>'}
     <div class="meal-clear-actions"><button type="button" data-cancel>취소</button><button type="button" data-delete ${meals.length ? '' : 'disabled'}>삭제</button></div>`;
   document.body.appendChild(dialog);
   dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
   dialog.querySelector('[data-delete]').onclick = () => {
     const selected = new Set([...dialog.querySelectorAll('input:checked')].map(input => input.value));
-    menuMeals().forEach(meal => { if(selected.has(meal.id)) meal.text = ''; });
+    dashboard.menu.meals = menuMeals().filter(meal => !selected.has(meal.id));
     dashboard.menu.days = {};
     queueSave();
     renderPanel();
