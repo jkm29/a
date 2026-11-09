@@ -231,16 +231,23 @@
 
   .ingredient-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:12px 0 18px;}
   .ingredient-field{display:flex; flex-direction:column; gap:6px;}
-  .ingredient-field:first-child{grid-row:span 2;}
-  .ingredient-field:first-child textarea{flex:1;}
+  .ingredient-field textarea{min-height:150px; flex:1;}
   .ingredient-grid .field-label{margin:0;}
-  .meal-row{display:grid; grid-template-columns:50px minmax(0,1fr); align-items:center; gap:8px; margin:6px 0;}
+  .meal-row{display:grid; grid-template-columns:18px 48px minmax(0,1fr); align-items:center; gap:6px; margin:6px 0;}
   .menu-heading{display:flex; align-items:center; justify-content:space-between; gap:8px;}
   .menu-heading :is(.p-title,.field-label){margin:0;}
   .menu-clear{color:var(--muted); font-family:var(--font-mono); font-size:11px;}
-  .meal-drag{border:0; background:none; color:var(--muted); cursor:grab; font-size:18px; padding:8px; -webkit-touch-callout:none;}
+  .meal-drag{border:0; background:none; color:var(--muted); cursor:grab; font-size:18px; padding:0; -webkit-touch-callout:none;}
   .meal-row.dragging{opacity:.55; background:var(--menu-soft);}
   .meal-row textarea{min-height:38px;}
+  .meal-day{width:48px; min-width:0; padding:8px 2px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:inherit; font:inherit;}
+  .meal-ideas{margin-top:18px;}
+  .meal-clear-dialog{width:calc(100% - 40px); max-width:460px; max-height:80vh; overflow:auto; border:1px solid var(--line); border-radius:18px; padding:20px; color:var(--text); background:var(--card,white);}
+  .meal-clear-dialog::backdrop{background:rgba(0,0,0,.35);}
+  .meal-clear-choice{display:flex; align-items:flex-start; gap:10px; margin:12px 0; font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere;}
+  .meal-clear-choice input{width:auto; flex-shrink:0; margin-top:4px;}
+  .meal-clear-actions{display:flex; justify-content:flex-end; gap:12px; margin-top:18px;}
+
 
   .plan-top{
     display:flex; gap:16px; flex-wrap:wrap; align-items:stretch; margin-bottom:20px;
@@ -547,7 +554,7 @@ function renderPanel(){
   const color = CAT_COLOR[activeTab];
 
   if(activeTab==='menu'){
-    const meals = menuMeals();
+    const meals = sortMenuMeals();
     wrap.innerHTML = `
       <div class="panel" style="--accent:${color}">
         <div class="menu-heading">
@@ -555,7 +562,7 @@ function renderPanel(){
           <button type="button" class="line-add menu-clear" aria-label="식단표 전체 비우기" onclick="clearMenu('all')">-</button>
         </div>
         <div class="ingredient-grid">
-          ${[['ingredients','냉장'],['freezer','냉동'],['pantry','실온']].map(([field, label]) => `
+          ${[['ingredients','냉장'],['freezer','냉동']].map(([field, label]) => `
             <div class="ingredient-field">
               <div class="menu-heading">
                 <label class="field-label" for="menu-${field}">${label}</label>
@@ -576,8 +583,16 @@ function renderPanel(){
         ${meals.map((meal, index) => `
           <div class="meal-row" data-sort-id="${escAttr(meal.id)}">
             <button type="button" class="meal-drag" draggable="true" aria-label="식단 ${index + 1} 끌어서 이동">⠿</button>
+            <select class="meal-day" aria-label="식단 ${index + 1} 요일" onchange="updateMenuMealDay('${escAttr(meal.id)}', this.value)">
+              <option value="">요일</option>
+              ${WD_KEYS.map((day, i) => `<option value="${day}" ${meal.day === day ? 'selected' : ''}>${['월','화','수','목','금','토','일'][i]}</option>`).join('')}
+            </select>
             <textarea class="autosize" rows="1" aria-label="식단 ${index + 1}" oninput="autoGrow(this); updateMenuMeal('${escAttr(meal.id)}', this.value)">${esc(meal.text)}</textarea>
           </div>`).join('')}
+        </div>
+        <div class="meal-ideas">
+          <label class="field-label" for="menu-ideas">아이디어</label>
+          <textarea id="menu-ideas" class="autosize" oninput="autoGrow(this); m_updateMenuField('ideas', this.value)">${esc(m.menu.ideas || '')}</textarea>
         </div>
       </div>
     `;
@@ -1102,11 +1117,54 @@ function menuMeals(){
   const meals = WD_KEYS.map(day => {
     const saved = dashboard.menu.days?.[day];
     const text = typeof saved === 'string' ? saved : [saved?.jihyun, saved?.hyeonje].filter(Boolean).join('\n');
-    return { id: uid(), text };
+    return { id: uid(), text, day };
   });
   while(meals.length > 5 && !meals[meals.length - 1].text.trim()) meals.pop();
   dashboard.menu.meals = meals;
   return meals;
+}
+
+function sortMenuMeals(){
+  const meals = menuMeals();
+  const rank = meal => WD_KEYS.includes(meal.day) ? WD_KEYS.indexOf(meal.day) : 7;
+  meals.sort((a, b) => rank(a) - rank(b));
+  return meals;
+}
+
+function updateMenuMealDay(id, day){
+  const meal = menuMeals().find(item => item.id === id);
+  if(!meal) return;
+  meal.day = WD_KEYS.includes(day) ? day : '';
+  sortMenuMeals();
+  queueSave();
+  renderPanel();
+}
+
+function openMealClearDialog(){
+  const meals = menuMeals().filter(meal => meal.text.trim());
+  const dialog = document.createElement('dialog');
+  dialog.className = 'meal-clear-dialog';
+  dialog.setAttribute('aria-label', '식단 선택 삭제');
+  dialog.innerHTML = `<h3>식단 선택 삭제</h3>
+    <p>비울 항목을 선택해주세요.</p>
+    ${meals.length ? meals.map(meal => {
+      const dayIndex = WD_KEYS.indexOf(meal.day);
+      const day = dayIndex >= 0 ? ['월','화','수','목','금','토','일'][dayIndex] + ' · ' : '';
+      return `<label class="meal-clear-choice"><input type="checkbox" value="${escAttr(meal.id)}" checked><span>${day}${esc(meal.text)}</span></label>`;
+    }).join('') : '<p>입력된 식단이 없습니다.</p>'}
+    <div class="meal-clear-actions"><button type="button" data-cancel>취소</button><button type="button" data-delete ${meals.length ? '' : 'disabled'}>삭제</button></div>`;
+  document.body.appendChild(dialog);
+  dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
+  dialog.querySelector('[data-delete]').onclick = () => {
+    const selected = new Set([...dialog.querySelectorAll('input:checked')].map(input => input.value));
+    menuMeals().forEach(meal => { if(selected.has(meal.id)) meal.text = ''; });
+    dashboard.menu.days = {};
+    queueSave();
+    renderPanel();
+    dialog.close();
+  };
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  dialog.showModal();
 }
 
 function addMenuMeal(){
@@ -1125,6 +1183,7 @@ function updateMenuMeal(id, text){
 }
 
 function clearMenu(scope){
+  if(scope === 'days'){ openMealClearDialog(); return; }
   const labels = { all: '주간 식단표 전체', days: '식단 목록', ingredients: '냉장', freezer: '냉동', pantry: '실온' };
   if(!confirm(labels[scope] + ' 내용을 비울까요?')) return;
   const menu = dashboard.menu;
@@ -1136,6 +1195,7 @@ function clearMenu(scope){
     menu.ingredients = '';
     menu.freezer = '';
     menu.pantry = '';
+    menu.ideas = '';
   }else if(scope !== 'days'){
     menu[scope] = '';
   }
