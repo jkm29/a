@@ -14,6 +14,8 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="./calendar-sync-config.js"></script>
 <style>
   :root{
     --bg:#F1F6FC;
@@ -416,6 +418,10 @@
   .schedule-entry.important{color:#c62828; font-weight:700;}
   .schedule-preview.jihyun-important,.schedule-preview.hyeonje-important,.schedule-preview.unassigned-important{color:#c62828; font-weight:700;}
   .schedule-entry:focus-visible{outline:2px solid var(--plan);}
+  .calendar-sync{margin:16px 0 0; font-size:12.5px; color:var(--muted);}
+  .calendar-sync button{margin-right:4px;}
+  .calendar-sync-entry{padding:8px 0; overflow-wrap:anywhere;}
+  .calendar-sync-entry small{margin-left:8px; color:var(--muted);}
   .schedule-list-actions{display:flex; gap:12px;}
   .schedule-list-actions button:disabled{opacity:.35;}
 </style>
@@ -811,6 +817,57 @@ function parseScheduleDictation(input, today = new Date()){
   };
 }
 
+const calendarSyncConfig = window.familyCalendarSyncConfig;
+const calendarAuth = calendarSyncConfig
+  ? firebase.initializeApp(calendarSyncConfig.firebase, 'calendar-sync').auth() : null;
+let importedCalendarEvents = [];
+let calendarSyncMessage = '';
+let calendarReadRequest = 0;
+
+async function refreshImportedCalendar(user){
+  const request = ++calendarReadRequest;
+  try{
+    const response = await fetch(calendarSyncConfig.endpoint, {
+      headers: { Authorization: 'Bearer ' + await user.getIdToken() }
+    });
+    if(!response.ok) throw new Error(String(response.status));
+    const { events } = await response.json();
+    if(request !== calendarReadRequest) return;
+    const message = 'iCloud 일정 ' + events.length + '개';
+    if(calendarSyncMessage === message && JSON.stringify(importedCalendarEvents) === JSON.stringify(events)) return;
+    importedCalendarEvents = events;
+    calendarSyncMessage = message;
+  }catch(error){
+    if(request !== calendarReadRequest) return;
+    importedCalendarEvents = [];
+    calendarSyncMessage = error.message === '403'
+      ? '연결이 허용된 계정으로 로그인해 주세요.'
+      : 'iCloud 일정을 불러오지 못했어요.';
+  }
+  if(activeTab === 'plan' && !document.querySelector('.schedule-dialog[open]')) renderPanel();
+}
+
+calendarAuth?.onAuthStateChanged(user => {
+  if(user){
+    refreshImportedCalendar(user);
+    return;
+  }
+  calendarReadRequest++;
+  importedCalendarEvents = [];
+  calendarSyncMessage = '';
+  if(activeTab === 'plan' && !document.querySelector('.schedule-dialog[open]')) renderPanel();
+});
+
+if(calendarAuth){
+  setInterval(() => {
+    if(!document.hidden && activeTab === 'plan' && calendarAuth.currentUser &&
+       !document.querySelector('.schedule-dialog[open]') &&
+       !document.activeElement?.closest('.schedule-list')){
+      refreshImportedCalendar(calendarAuth.currentUser);
+    }
+  }, 60000);
+}
+
 function renderMonthlySchedule(wrap){
   const [year, month] = selectedMonth.split('-').map(Number);
   const today = dateToStr(new Date());
@@ -818,12 +875,14 @@ function renderMonthlySchedule(wrap){
     item.date <= date && date <= (item.endDate || item.date)
   );
   const items = itemsForDate(selectedDate);
+  const importedForDate = date => importedCalendarEvents.filter(event => event.start <= date && date <= event.end);
+  const importedItems = importedForDate(selectedDate);
   const firstWeekday = new Date(year, month - 1, 1).getDay();
   const dayCount = new Date(year, month, 0).getDate();
   const cells = Array.from({ length: dayCount }, (_, index) => {
     const day = index + 1;
     const date = selectedMonth + '-' + String(day).padStart(2, '0');
-    const entries = itemsForDate(date);
+    const entries = [...itemsForDate(date), ...importedForDate(date)];
     return `
       <button type="button" class="schedule-day" data-date="${date}"
         aria-label="${month}월 ${day}일, 일정 ${entries.length}개"
@@ -870,6 +929,15 @@ function renderMonthlySchedule(wrap){
             </div>`).join('') : '<p class="p-sub">이날에 등록된 일정이 없어요.</p>'}
         </div>
       </div>
+      ${calendarAuth ? `
+        <section class="calendar-sync" aria-label="iCloud 캘린더">
+          <strong>iCloud 캘린더</strong>
+          ${calendarAuth.currentUser
+            ? '<button type="button" class="line-add" id="calendarSyncRefresh">새로고침</button><button type="button" class="line-add" id="calendarSyncLogout">로그아웃</button>'
+            : '<button type="button" class="line-add" id="calendarSyncLogin">Google로 로그인</button>'}
+          <div id="calendarSyncStatus" role="status">${esc(calendarSyncMessage)}</div>
+          ${importedItems.map(event => `<div class="calendar-sync-entry">${esc(event.title)} <small>${esc(event.calendar)}</small></div>`).join('')}
+        </section>` : ''}
     </section>
     <dialog class="panel schedule-dialog" aria-labelledby="scheduleDialogTitle">
       <h2 id="scheduleDialogTitle" class="p-title">일정 추가</h2>
@@ -902,6 +970,24 @@ function renderMonthlySchedule(wrap){
         </div>
       </form>
     </dialog>`;
+  if(calendarAuth){
+    const login = wrap.querySelector('#calendarSyncLogin');
+    if(login){
+      login.onclick = async () => {
+        login.disabled = true;
+        try{
+          await calendarAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+        }catch{
+          wrap.querySelector('#calendarSyncStatus').textContent = '로그인하지 못했어요. 팝업 허용 여부를 확인하고 다시 시도해 주세요.';
+        }finally{
+          login.disabled = false;
+        }
+      };
+    }else{
+      wrap.querySelector('#calendarSyncRefresh').onclick = () => refreshImportedCalendar(calendarAuth.currentUser);
+      wrap.querySelector('#calendarSyncLogout').onclick = () => calendarAuth.signOut();
+    }
+  }
   wrap.querySelectorAll('[data-date]').forEach(button => {
     button.onclick = () => {
       selectedScheduleIds.clear();
