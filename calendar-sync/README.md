@@ -1,16 +1,15 @@
 # 지현제네 iCloud 캘린더 연동
 
-기존 달력과 별도의 Firebase 프로젝트에서 가져온 일정만 저장합니다.
+기존 Firebase 프로젝트 `family-meeting-log`의 `calendarSnapshots` 컬렉션에 가져온 일정을 저장합니다.
 웹에서는 승인된 두 Google 계정으로 일정을 조회합니다.
 아이폰 단축어는 선택한 iCloud 캘린더의 전체 조회 결과를 보내며,
 서버가 이전 조회 결과를 교체합니다.
 
 ## Firebase 설정
 
-1. 연동 전용 Firebase 프로젝트를 만들고 Firestore와 Google 로그인, 웹 앱을 설정합니다.
+1. 기존 `family-meeting-log` 프로젝트에서 Google 로그인을 활성화합니다.
    Authentication의 승인된 도메인에 `jkm29.github.io`를 추가합니다.
-2. 제목과 날짜는 서버에서만 읽고 쓰도록 이 폴더의 Firestore 규칙을 사용합니다.
-   기존 지현제네 프로젝트에는 이 규칙을 적용하지 않습니다.
+2. Firebase 콘솔에서 현재 Firestore 규칙을 확인합니다. 가져온 일정은 함수만 접근하므로 일반 클라이언트가 `calendarSnapshots`를 읽거나 쓸 수 없어야 합니다. 이 경로에 적용되는 모든 `allow` 규칙을 확인하세요. 전체 경로를 허용하는 규칙이 있다면 실제 사용 중인 경로로 범위를 좁힙니다. 기존 앱 데이터의 허용 규칙을 유지하고, 규칙 시뮬레이터로 기존 앱 경로와 새 컬렉션의 읽기·쓰기를 검증한 뒤 게시합니다.
 3. `openssl rand -hex 32`로 기기마다 서로 다른 키를 만듭니다.
    Secret Manager에 아래 형태로 등록합니다. 실제 값은 저장소에 넣지 않습니다.
 
@@ -18,15 +17,15 @@
    {"emails":["first@example.com","second@example.com"],"devices":{"phone1":"64자-hex-키"}}
    ```
 
-   `firebase functions:secrets:set FAMILY_CALENDAR_ACCESS --project PROJECT_ID`
+   `firebase functions:secrets:set FAMILY_CALENDAR_ACCESS --project family-meeting-log`
 4. 이 폴더에서 `npm --prefix functions install`을 실행한 뒤
-   `firebase deploy --only firestore:rules,functions:calendar-sync --project PROJECT_ID`로 배포합니다.
+   `firebase deploy --only functions:calendar-sync --project family-meeting-log`로 배포합니다.
 5. `log/calendar-sync-config.js`에 공개 Firebase 웹 앱 설정과 배포된 함수 URL을 입력합니다.
 
    ```js
    window.familyCalendarSyncConfig = {
-     firebase: { apiKey: '...', authDomain: 'PROJECT_ID.firebaseapp.com', projectId: 'PROJECT_ID', appId: '...' },
-     endpoint: 'https://asia-northeast3-PROJECT_ID.cloudfunctions.net/familyCalendar'
+     firebase: { apiKey: '...', authDomain: 'family-meeting-log.firebaseapp.com', projectId: 'family-meeting-log', appId: '...' },
+     endpoint: 'https://asia-northeast3-family-meeting-log.cloudfunctions.net/familyCalendar'
    };
    ```
 
