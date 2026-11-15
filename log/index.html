@@ -817,56 +817,68 @@ function parseScheduleDictation(input, today = new Date()){
   };
 }
 
-const calendarSyncConfig = window.familyCalendarSyncConfig;
-const calendarAuth = calendarSyncConfig
-  ? firebase.initializeApp(calendarSyncConfig.firebase, 'calendar-sync').auth() : null;
+// Keep private calendar snapshots out of the dashboard's persistent cache.
+const calendarApp = window.familyCalendarSyncEnabled === true
+  ? firebase.initializeApp(firebaseConfig, 'calendar-sync') : null;
+const calendarAuth = calendarApp?.auth();
 let importedCalendarEvents = [];
 let calendarSyncMessage = '';
-let calendarReadRequest = 0;
+let stopCalendarWatch;
 
-async function refreshImportedCalendar(user){
-  const request = ++calendarReadRequest;
-  try{
-    const response = await fetch(calendarSyncConfig.endpoint, {
-      headers: { Authorization: 'Bearer ' + await user.getIdToken() }
-    });
-    if(!response.ok) throw new Error(String(response.status));
-    const { events } = await response.json();
-    if(request !== calendarReadRequest) return;
-    const message = 'iCloud 일정 ' + events.length + '개';
-    if(calendarSyncMessage === message && JSON.stringify(importedCalendarEvents) === JSON.stringify(events)) return;
-    importedCalendarEvents = events;
-    calendarSyncMessage = message;
-  }catch(error){
-    if(request !== calendarReadRequest) return;
-    importedCalendarEvents = [];
-    calendarSyncMessage = error.message === '403'
-      ? '연결이 허용된 계정으로 로그인해 주세요.'
-      : 'iCloud 일정을 불러오지 못했어요.';
-  }
+function decodeCalendarEvents(value){
+  if(typeof value !== 'string') return [];
+  let entries;
+  try { entries = JSON.parse(value); } catch { return []; }
+  if(!Array.isArray(entries)) return [];
+  const isDay = date => {
+    if(typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    const timestamp = Date.parse(date);
+    return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === date;
+  };
+  return entries.filter(event => event && typeof event.title === 'string' &&
+    event.title.trim() && event.title.length <= 512 &&
+    typeof event.calendar === 'string' && event.calendar.length <= 128 &&
+    isDay(event.start) && isDay(event.end) && event.start <= event.end);
+}
+
+function showCalendarSync(events, message){
+  importedCalendarEvents = events;
+  calendarSyncMessage = message;
   if(activeTab === 'plan' && !document.querySelector('.schedule-dialog[open]')) renderPanel();
 }
 
 calendarAuth?.onAuthStateChanged(user => {
-  if(user){
-    refreshImportedCalendar(user);
-    return;
-  }
-  calendarReadRequest++;
-  importedCalendarEvents = [];
-  calendarSyncMessage = '';
-  if(activeTab === 'plan' && !document.querySelector('.schedule-dialog[open]')) renderPanel();
-});
-
-if(calendarAuth){
-  setInterval(() => {
-    if(!document.hidden && activeTab === 'plan' && calendarAuth.currentUser &&
-       !document.querySelector('.schedule-dialog[open]') &&
-       !document.activeElement?.closest('.schedule-list')){
-      refreshImportedCalendar(calendarAuth.currentUser);
+  stopCalendarWatch?.();
+  stopCalendarWatch = undefined;
+  showCalendarSync([], user ? 'iCloud 일정을 불러오는 중…' : '');
+  if(!user) return;
+  stopCalendarWatch = calendarApp.firestore().collection('calendarSnapshots').onSnapshot(
+    { includeMetadataChanges: true },
+    snapshot => {
+      if(calendarAuth.currentUser !== user || snapshot.metadata.fromCache) return;
+      const events = [];
+      let latest = 0;
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if(!(data.capturedAt instanceof firebase.firestore.Timestamp)) return;
+        latest = Math.max(latest, data.capturedAt.toMillis());
+        for(const event of decodeCalendarEvents(data.eventsJson)) events.push(event);
+      });
+      if(!latest){
+        showCalendarSync([], '아직 동기화된 일정이 없어요.');
+        return;
+      }
+      showCalendarSync(events, 'iCloud 일정 ' + events.length + '개 · 최근 동기화 ' +
+        new Date(latest).toLocaleString('ko-KR'));
+    },
+    error => {
+      if(calendarAuth.currentUser !== user) return;
+      showCalendarSync([], error.code === 'permission-denied'
+        ? '연결이 허용된 계정으로 로그인해 주세요.'
+        : 'iCloud 일정을 불러오지 못했어요.');
     }
-  }, 60000);
-}
+  );
+});
 
 function renderMonthlySchedule(wrap){
   const [year, month] = selectedMonth.split('-').map(Number);
@@ -933,7 +945,7 @@ function renderMonthlySchedule(wrap){
         <section class="calendar-sync" aria-label="iCloud 캘린더">
           <strong>iCloud 캘린더</strong>
           ${calendarAuth.currentUser
-            ? '<button type="button" class="line-add" id="calendarSyncRefresh">새로고침</button><button type="button" class="line-add" id="calendarSyncLogout">로그아웃</button>'
+            ? '<button type="button" class="line-add" id="calendarSyncLogout">로그아웃</button>'
             : '<button type="button" class="line-add" id="calendarSyncLogin">Google로 로그인</button>'}
           <div id="calendarSyncStatus" role="status">${esc(calendarSyncMessage)}</div>
           ${importedItems.map(event => `<div class="calendar-sync-entry">${esc(event.title)} <small>${esc(event.calendar)}</small></div>`).join('')}
@@ -984,7 +996,6 @@ function renderMonthlySchedule(wrap){
         }
       };
     }else{
-      wrap.querySelector('#calendarSyncRefresh').onclick = () => refreshImportedCalendar(calendarAuth.currentUser);
       wrap.querySelector('#calendarSyncLogout').onclick = () => calendarAuth.signOut();
     }
   }

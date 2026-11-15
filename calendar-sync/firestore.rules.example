@@ -1,0 +1,32 @@
+// Replace the UID placeholders, then add this block inside the existing
+// match /databases/{database}/documents. Keep all existing app path rules.
+match /calendarSnapshots/{deviceUid} {
+  function isCalendarReader() {
+    return request.auth != null
+      && request.auth.token.firebase.sign_in_provider == 'google.com'
+      && request.auth.uid in ['JIHYEON_GOOGLE_UID', 'HYEONJE_GOOGLE_UID'];
+  }
+
+  function isCalendarWriter() {
+    return request.auth != null
+      && request.auth.token.firebase.sign_in_provider == 'password'
+      && request.auth.uid == deviceUid
+      && deviceUid in ['IPHONE_1_UID'];
+  }
+
+  function validSnapshot() {
+    let data = request.resource.data;
+    return data.keys().hasAll(['eventsJson', 'capturedAt'])
+      && data.keys().hasOnly(['eventsJson', 'capturedAt'])
+      && data.eventsJson is string
+      && data.eventsJson.size() <= 150000
+      && data.capturedAt is timestamp
+      && data.capturedAt >= request.time - duration.value(1, 'h')
+      && data.capturedAt <= request.time + duration.value(2, 'm');
+  }
+
+  allow read: if isCalendarReader();
+  allow create: if isCalendarWriter() && validSnapshot();
+  allow update: if isCalendarWriter() && validSnapshot()
+    && request.resource.data.capturedAt > resource.data.capturedAt;
+}
